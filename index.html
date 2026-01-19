@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>English Park</title>
+    <!-- Google Fonts: 高品質なフォントを読み込み -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+    
+    <!-- 既存の外部CSS -->
+    <link rel="stylesheet" href="style.css">
+    
+    <!-- Tailwind CSS & Three.js & Firebase ライブラリ -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+
+    <style>
+        /* 追加機能（ログイン・3D）用の専用スタイル */
+        #login-overlay {
+            position: fixed; inset: 0; 
+            background: linear-gradient(135deg, #065f46 0%, #1e40af 100%);
+            display: flex; align-items: center; justify-content: center; z-index: 10000;
+        }
+        .login-box { 
+            background: white; padding: 2.5rem; border-radius: 2rem; 
+            width: 90%; max-width: 420px; 
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); 
+        }
+        #park-3d-container { position: fixed; inset: 0; background: #000; z-index: 9000; display: none; }
+        .clickable-btn { cursor: pointer; pointer-events: auto !important; }
+        .hidden { display: none !important; }
+        
+        /* 3DパークのUIオーバーレイ */
+        .park-ui-overlay {
+            position: absolute; top: 20px; left: 20px; z-index: 9001;
+            background: rgba(255, 255, 255, 0.95); padding: 20px; border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            border: 1px solid rgba(0,0,0,0.1);
+        }
+
+        /* 業界別カードの回転アニメーション維持 */
+        .perspective-1000 { perspective: 1000px; }
+        .card-inner { transform-style: preserve-3d; }
+        .card-inner.is-flipped { transform: rotateY(180deg); }
+        .card-front, .card-back { backface-visibility: hidden; }
+        .card-back { transform: rotateY(180deg); }
+
+        /* 元のスクロール設定を維持 */
+        body { overflow-x: hidden; }
+        .screen { display: none; min-height: 100vh; width: 100%; }
+        .screen.active { display: block; }
+    </style>
+</head>
+<body>
+
+    <!-- 1. ログイン・会員登録画面 (新機能) -->
+    <div id="login-overlay">
+        <div class="login-box">
+            <div class="text-center mb-8">
+                <span class="text-5xl">🌲</span>
+                <h2 id="auth-title" class="text-3xl font-bold mt-4 text-emerald-700">English Park</h2>
+                <p id="auth-subtitle" class="text-gray-500 mt-2">学習を記録するためにログインしてください</p>
+            </div>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">メールアドレス</label>
+                    <input type="email" id="auth-email" placeholder="example@email.com" class="w-full p-4 border-2 border-gray-100 rounded-xl outline-none focus:border-emerald-500 transition">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">パスワード</label>
+                    <input type="password" id="auth-pass" placeholder="••••••••" class="w-full p-4 border-2 border-gray-100 rounded-xl outline-none focus:border-emerald-500 transition">
+                </div>
+                <button id="btn-auth-main" class="w-full bg-emerald-500 text-white font-bold py-4 rounded-xl hover:bg-emerald-600 shadow-lg shadow-emerald-200 transition clickable-btn">ログイン</button>
+                <div class="relative flex py-3 items-center">
+                    <div class="flex-grow border-t border-gray-200"></div>
+                    <span class="flex-shrink mx-4 text-gray-400 text-sm">または</span>
+                    <div class="flex-grow border-t border-gray-200"></div>
+                </div>
+                <div class="text-center">
+                    <button id="btn-toggle-mode" class="text-sm font-bold text-blue-600 hover:text-blue-800 transition clickable-btn">
+                        新規アカウントを作成する
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. 3D Voice Park 広場 (新機能) -->
+    <div id="park-3d-container">
+        <div class="park-ui-overlay">
+            <div class="flex items-center gap-3 mb-3">
+                <div class="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center text-xl">👤</div>
+                <div>
+                    <p class="font-bold text-gray-800 leading-tight" id="park-user-display">Loading...</p>
+                    <p class="text-[10px] text-emerald-500 font-bold uppercase tracking-widest">3D Voice Park</p>
+                </div>
+            </div>
+            <p class="text-xs text-gray-500 mb-4">WASDまたは矢印キーで移動<br>他の人に近づいて会話しよう！</p>
+            <button id="btn-exit-park" class="w-full py-2 bg-gray-100 text-gray-700 font-bold rounded-lg hover:bg-gray-200 transition clickable-btn">🏠 パークを出る</button>
+        </div>
+        <div id="gameArea"></div>
+    </div>
+
+    <!-- 3. スプラッシュ（オープニング） -->
+    <div id="splash-screen" class="screen active">
+        <div class="splash-content text-center">
+            <div class="splash-logo text-8xl mb-6">🌳</div>
+            <h1 class="text-4xl font-bold mb-2">English Park</h1>
+            <p class="text-gray-600 mb-8">Welcome to your English learning journey!</p>
+            <button id="enter-app-button" class="action-button px-12 py-4 bg-emerald-500 text-white rounded-full font-bold text-xl shadow-xl hover:bg-emerald-600 transition">スタート</button>
+        </div>
+    </div>
+
+    <!-- 4. 解説用モーダル -->
+    <div id="info-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <div class="flex items-center gap-4 mb-4">
+                <div id="modal-icon" class="text-4xl">💡</div>
+                <h2 id="modal-title" class="text-2xl font-bold">機能タイトル</h2>
+            </div>
+            <p id="modal-description" class="text-gray-600 leading-relaxed">機能の詳細説明</p>
+        </div>
+    </div>
+
+    <!-- 5. ホーム画面 -->
+    <main id="home-screen" class="screen">
+        <div class="container py-8 px-4 max-w-2xl mx-auto">
+            <header class="flex justify-between items-end mb-8">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-800">English Park 🌳</h1>
+                    <p class="text-gray-500">今日も英語を楽しみましょう</p>
+                </div>
+                <button id="btn-global-logout" class="text-xs font-bold text-gray-400 hover:text-red-500 transition">ログアウト</button>
+            </header>
+
+            <!-- 3Dパーク入口バナー -->
+            <div id="go-to-park" class="bg-gradient-to-r from-emerald-400 to-blue-500 p-6 rounded-3xl mb-8 shadow-xl shadow-emerald-100 clickable-btn transform hover:scale-[1.02] transition">
+                <div class="flex justify-between items-center">
+                    <div class="text-white">
+                        <h3 class="text-2xl font-bold mb-1">🌍 3D Voice Park</h3>
+                        <p class="text-sm opacity-90 text-white">アバターで交流する新しい学習体験</p>
+                    </div>
+                    <span class="text-5xl animate-bounce">🚀</span>
+                </div>
+            </div>
+
+            <!-- 今日のイディオムカード -->
+            <div id="idiom-of-the-day-card" class="card idiom-card mb-8">
+                <div class="card-header border-b pb-4 mb-4 flex justify-between items-center">
+                    <h2 class="text-lg font-bold text-emerald-600">💡 今日のイディオム</h2>
+                    <span id="idiom-date" class="text-sm text-gray-400"></span>
+                </div>
+                <h3 id="idiom-phrase" class="text-2xl font-bold mb-2">Loading...</h3>
+                <p class="mb-2"><strong class="text-gray-700">意味:</strong> <span id="idiom-meaning" class="text-emerald-700"></span></p>
+                <p id="idiom-description" class="text-sm text-gray-500 italic"></p>
+            </div>
+
+            <!-- メインメニュー -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <!-- スピーキング -->
+                <div class="game-card relative bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition cursor-pointer" id="start-speaking-practice">
+                    <button class="info-btn absolute top-4 right-4 text-gray-300 hover:text-emerald-500" data-feature="speaking">i</button>
+                    <div class="text-4xl mb-3">🗣️</div>
+                    <h3 class="font-bold text-lg">スピーキング練習</h3>
+                    <p class="text-xs text-gray-500">発音、リズムをAIが判定します。</p>
+                </div>
+                <!-- 単語クイズ -->
+                <div class="game-card relative bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition cursor-pointer" id="go-to-quiz-levels">
+                    <button class="info-btn absolute top-4 right-4 text-gray-300 hover:text-emerald-500" data-feature="wordquiz">i</button>
+                    <div class="text-4xl mb-3">✍️</div>
+                    <h3 class="font-bold text-lg">単語クイズ</h3>
+                    <p class="text-xs text-gray-500">レベル別の語彙力テスト。</p>
+                </div>
+                <!-- リスニング -->
+                <div class="game-card relative bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition cursor-pointer" id="start-listening-challenge">
+                    <button class="info-btn absolute top-4 right-4 text-gray-300 hover:text-emerald-500" data-feature="listening">i</button>
+                    <div class="text-4xl mb-3">🎧</div>
+                    <h3 class="font-bold text-lg">リスニング</h3>
+                    <p class="text-xs text-gray-500">書き取り（ディクテーション）練習。</p>
+                </div>
+                <!-- リーディング -->
+                <div class="game-card relative bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition cursor-pointer" id="start-reading-quiz">
+                    <button class="info-btn absolute top-4 right-4 text-gray-300 hover:text-emerald-500" data-feature="reading">i</button>
+                    <div class="text-4xl mb-3">📚</div>
+                    <h3 class="font-bold text-lg">読解練習</h3>
+                    <p class="text-xs text-gray-500">英文を読んで内容を理解しましょう。</p>
+                </div>
+                <!-- 専門分野別 -->
+                <div class="game-card relative bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition cursor-pointer" id="start-industry-focus">
+                    <button class="info-btn absolute top-4 right-4 text-gray-300 hover:text-emerald-500" data-feature="industry">i</button>
+                    <div class="text-4xl mb-3">🚀</div>
+                    <h3 class="font-bold text-lg">専門分野別</h3>
+                    <p class="text-xs text-gray-500">IT、ビジネス、医療の特化単語。</p>
+                </div>
+                <!-- ビデオチャット -->
+                <div class="game-card relative bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition cursor-pointer" id="start-video-chat">
+                    <button class="info-btn absolute top-4 right-4 text-gray-300 hover:text-emerald-500" data-feature="videochat">i</button>
+                    <div class="text-4xl mb-3">📹</div>
+                    <h3 class="font-bold text-lg">ビデオチャット</h3>
+                    <p class="text-xs text-gray-500">世界中のユーザーと英会話。</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 6. スピーキング練習詳細画面 -->
+    <main id="speaking-practice-screen" class="screen">
+        <div class="container py-8 px-4 max-w-2xl mx-auto">
+            <button id="backButtonSpeaking" class="mb-6 flex items-center text-gray-400 font-bold hover:text-emerald-500 transition">← 戻る</button>
+            <h1 class="text-3xl font-bold mb-8">スピーキング練習 🗣️</h1>
+            <div class="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 mb-8">
+                <div class="flex justify-between items-center mb-6">
+                    <span class="px-4 py-1 bg-emerald-100 text-emerald-600 rounded-full text-xs font-bold uppercase">Topic</span>
+                    <button id="nextButton" class="text-sm text-blue-500 font-bold">次のお題 🔄</button>
+                </div>
+                <p id="sentence" class="text-2xl font-bold text-gray-800 mb-4"></p>
+                <p id="sentence-meaning" class="text-gray-400 italic"></p>
+            </div>
+            <div class="flex flex-col items-center gap-6">
+                <div class="flex gap-4">
+                    <button id="listenButton" class="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-2xl shadow-sm hover:bg-blue-200 transition">🎧</button>
+                    <button id="startButton" class="px-10 py-4 bg-emerald-500 text-white rounded-full font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-600 transition">録音開始 🎙️</button>
+                    <button id="stopButton" disabled class="w-16 h-16 bg-gray-100 text-gray-400 rounded-full flex items-center justify-center text-2xl transition">⏹️</button>
+                </div>
+                <div id="status" class="text-sm font-bold text-emerald-500 animate-pulse h-6"></div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-12">
+                <div class="bg-white p-6 rounded-2xl border text-center">
+                    <h4 class="text-xs text-gray-400 font-bold mb-2 uppercase">Score</h4>
+                    <p class="text-4xl font-bold text-emerald-600" id="score">0</p>
+                </div>
+                <div class="bg-white p-6 rounded-2xl border flex flex-col items-center justify-center">
+                    <h4 class="text-xs text-gray-400 font-bold mb-2 uppercase">Your Voice</h4>
+                    <audio id="user-recording-player" controls class="w-full h-8"></audio>
+                </div>
+                <div class="bg-white p-6 rounded-2xl border">
+                    <h4 class="text-xs text-gray-400 font-bold mb-2 uppercase">Feedback</h4>
+                    <p id="feedback" class="text-xs text-gray-500 leading-relaxed">-</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 7. 単語クイズ：レベル選択 -->
+    <main id="quiz-level-screen" class="screen">
+        <div class="container py-8 px-4 max-w-2xl mx-auto">
+            <button id="backButtonFromLevels" class="mb-6 font-bold text-gray-400">← 戻る</button>
+            <h1 class="text-3xl font-bold mb-8 text-gray-800">レベルを選択 ✍️</h1>
+            <div class="grid grid-cols-1 gap-4">
+                <div class="level-card p-6 bg-white rounded-2xl border-2 border-transparent hover:border-emerald-500 cursor-pointer transition shadow-sm" data-level="beginner">
+                    <div class="flex items-center gap-4">
+                        <span class="text-3xl">🌱</span>
+                        <div>
+                            <h3 class="font-bold text-lg text-gray-800">初級編</h3>
+                            <p class="text-sm text-gray-500">英検3級 / 日常会話レベル</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="level-card p-6 bg-white rounded-2xl border-2 border-transparent hover:border-emerald-500 cursor-pointer transition shadow-sm" data-level="intermediate">
+                    <div class="flex items-center gap-4">
+                        <span class="text-3xl">🌿</span>
+                        <div>
+                            <h3 class="font-bold text-lg text-gray-800">中級編</h3>
+                            <p class="text-sm text-gray-500">英検2級 / ビジネス基礎レベル</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="level-card p-6 bg-white rounded-2xl border-2 border-transparent hover:border-emerald-500 cursor-pointer transition shadow-sm" data-level="advanced">
+                    <div class="flex items-center gap-4">
+                        <span class="text-3xl">🌳</span>
+                        <div>
+                            <h3 class="font-bold text-lg text-gray-800">上級編</h3>
+                            <p class="text-sm text-gray-500">英検準1級 / 専門議論レベル</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="level-card p-6 bg-white rounded-2xl border-2 border-transparent hover:border-emerald-500 cursor-pointer transition shadow-sm" data-level="expert">
+                    <div class="flex items-center gap-4">
+                        <span class="text-3xl">🏆</span>
+                        <div>
+                            <h3 class="font-bold text-lg text-gray-800">最上級編</h3>
+                            <p class="text-sm text-gray-500">英検1級 / ネイティブレベル</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- クイズ実行画面 -->
+    <main id="word-quiz-screen" class="screen">
+        <div class="container py-8 px-4 max-w-2xl mx-auto">
+            <div class="flex justify-between items-center mb-8">
+                <button id="backButtonFromQuiz" class="font-bold text-gray-400">← やめる</button>
+                <div id="quiz-hud" class="flex gap-4 font-mono font-bold text-emerald-500">
+                    <span id="quiz-question-counter">1/10</span>
+                    <span id="quiz-score">Score: 0</span>
+                </div>
+            </div>
+            <div id="quiz-game-area" class="bg-white p-8 rounded-3xl shadow-xl border border-gray-100">
+                <p id="quiz-question" class="text-3xl font-bold text-center mb-12 text-gray-800"></p>
+                <div id="quiz-options" class="grid grid-cols-1 gap-4">
+                    <!-- ボタンが動的に生成される -->
+                </div>
+                <div id="quiz-feedback" class="mt-8 text-center font-bold text-lg h-8"></div>
+            </div>
+            <div id="quiz-end-screen" class="hidden text-center mt-20">
+                <h2 class="text-4xl font-bold mb-4">クイズ終了！</h2>
+                <p id="quiz-final-score" class="text-2xl text-emerald-600 font-bold mb-8"></p>
+                <button id="quiz-restart-button" class="px-12 py-4 bg-emerald-500 text-white rounded-full font-bold shadow-lg hover:bg-emerald-600 transition">もう一度挑戦</button>
+            </div>
+        </div>
+    </main>
+
+    <!-- 8. リスニングチャレンジ -->
+    <main id="listening-challenge-screen" class="screen">
+        <div class="container py-8 px-4 max-w-2xl mx-auto">
+            <button id="backButtonFromListening" class="mb-6 font-bold text-gray-400">← 戻る</button>
+            <h1 class="text-3xl font-bold mb-8">リスニング 🎧</h1>
+            <div class="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 text-center mb-8">
+                <div class="mb-8">
+                    <button id="play-audio-button" class="w-24 h-24 bg-blue-500 text-white rounded-full text-3xl shadow-lg hover:bg-blue-600 transition mx-auto flex items-center justify-center">▶️</button>
+                    <p class="mt-4 text-sm text-gray-400">ボタンを押して音声を聞き取ろう</p>
+                </div>
+                <textarea id="listening-input" class="w-full p-6 border-2 border-gray-100 rounded-2xl focus:border-blue-400 outline-none text-xl transition mb-6" rows="3" placeholder="聞聞こえた英文をここに入力..."></textarea>
+                <button id="submit-listening-button" class="w-full py-4 bg-emerald-500 text-white rounded-xl font-bold text-lg shadow-lg hover:bg-emerald-600 transition">答え合わせ</button>
+            </div>
+            <div id="listening-feedback-area" class="hidden bg-white p-8 rounded-3xl border-2 border-emerald-100">
+                <p id="listening-feedback-text" class="text-xl font-bold text-center mb-4"></p>
+                <div class="bg-gray-50 p-4 rounded-xl mb-6">
+                    <p class="text-xs text-gray-400 font-bold mb-1">正解</p>
+                    <p id="listening-correct-answer" class="text-lg font-bold text-gray-800"></p>
+                </div>
+                <button id="next-listening-button" class="w-full py-4 bg-gray-800 text-white rounded-xl font-bold">次へ進む 🔄</button>
+            </div>
+        </div>
+    </main>
+
+    <!-- 9. 読解練習 -->
+    <main id="reading-quiz-screen" class="screen">
+        <div class="container py-8 px-4 max-w-3xl mx-auto">
+            <button id="backButtonFromReading" class="mb-6 font-bold text-gray-400">← 戻る</button>
+            <h1 class="text-3xl font-bold mb-8">読解練習 📚</h1>
+            <div class="bg-white p-10 rounded-3xl shadow-sm border border-gray-100 mb-8">
+                <h2 id="reading-title" class="text-2xl font-bold mb-6 text-emerald-700"></h2>
+                <p id="reading-passage" class="text-gray-700 leading-loose text-lg"></p>
+            </div>
+            <div id="reading-quiz-area" class="bg-emerald-50 p-8 rounded-3xl border-2 border-emerald-100">
+                <div id="reading-hud" class="flex justify-between mb-4 text-sm font-bold text-emerald-600">
+                    <span id="reading-question-counter">Question 1/3</span>
+                    <span id="reading-score">Score: 0</span>
+                </div>
+                <p id="reading-question" class="text-xl font-bold mb-6 text-gray-800"></p>
+                <div id="reading-options" class="grid grid-cols-1 gap-3"></div>
+            </div>
+            <div id="reading-end-screen" class="hidden text-center py-12">
+                <h2 class="text-3xl font-bold mb-4">全問終了！</h2>
+                <p id="reading-final-score" class="text-xl mb-8"></p>
+                <button id="reading-restart-button" class="px-10 py-4 bg-emerald-500 text-white rounded-full font-bold">次の文章へ</button>
+            </div>
+        </div>
+    </main>
+
+    <!-- 10. 専門分野別 (Industry Focus) 完全再現 -->
+    <main id="industry-selection-screen" class="screen">
+        <div class="container py-8 px-4 max-w-2xl mx-auto">
+            <button id="backButtonFromIndustry" class="mb-6 font-bold text-gray-400">← 戻る</button>
+            <h1 class="text-3xl font-bold mb-8">専門分野を選択 🚀</h1>
+            <div class="grid grid-cols-2 gap-4">
+                <div class="p-8 bg-white rounded-3xl border-2 border-transparent hover:border-emerald-500 cursor-pointer transition shadow-sm text-center" onclick="selectIndustry('it')">
+                    <div class="text-5xl mb-4">💻</div>
+                    <h3 class="font-bold text-xl">IT & Tech</h3>
+                </div>
+                <div class="p-8 bg-white rounded-3xl border-2 border-transparent hover:border-emerald-500 cursor-pointer transition shadow-sm text-center" onclick="selectIndustry('business')">
+                    <div class="text-5xl mb-4">💼</div>
+                    <h3 class="font-bold text-xl">Business</h3>
+                </div>
+                <div class="p-8 bg-white rounded-3xl border-2 border-transparent hover:border-emerald-500 cursor-pointer transition shadow-sm text-center" onclick="selectIndustry('medical')">
+                    <div class="text-5xl mb-4">🏥</div>
+                    <h3 class="font-bold text-xl">Medical</h3>
+                </div>
+                <div class="p-8 bg-white rounded-3xl border-2 border-transparent hover:border-emerald-500 cursor-pointer transition shadow-sm text-center" onclick="selectIndustry('finance')">
+                    <div class="text-5xl mb-4">💰</div>
+                    <h3 class="font-bold text-xl">Finance</h3>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <main id="industry-module-screen" class="screen">
+        <div class="container py-8 px-4 max-w-2xl mx-auto text-center">
+            <button id="backButtonFromModule" class="mb-12 font-bold text-gray-400">← 分野選択に戻る</button>
+            <h1 id="industry-title-display" class="text-4xl font-bold mb-12 text-gray-800">IT & Tech</h1>
+            <div class="grid grid-cols-1 gap-6">
+                <button onclick="startIndustryModule('flashcards')" class="p-8 bg-white rounded-3xl shadow-sm border hover:bg-emerald-50 transition flex items-center justify-between group">
+                    <div class="text-left">
+                        <h3 class="text-2xl font-bold text-gray-800">Flashcards</h3>
+                        <p class="text-sm text-gray-500">基本単語と例文の確認</p>
+                    </div>
+                    <span class="text-3xl group-hover:translate-x-2 transition">🎴</span>
+                </button>
+                <button onclick="startIndustryModule('phrases')" class="p-8 bg-white rounded-3xl shadow-sm border hover:bg-emerald-50 transition flex items-center justify-between group">
+                    <div class="text-left">
+                        <h3 class="text-2xl font-bold text-gray-800">Key Phrases</h3>
+                        <p class="text-sm text-gray-500">現場で使える表現</p>
+                    </div>
+                    <span class="text-3xl group-hover:translate-x-2 transition">💬</span>
+                </button>
+                <button onclick="startIndustryModule('articles')" class="p-8 bg-white rounded-3xl shadow-sm border hover:bg-emerald-50 transition flex items-center justify-between group">
+                    <div class="text-left">
+                        <h3 class="text-2xl font-bold text-gray-800">Micro Articles</h3>
+                        <p class="text-sm text-gray-500">短い記事で読解練習</p>
+                    </div>
+                    <span class="text-3xl group-hover:translate-x-2 transition">📄</span>
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <!-- フラッシュカード：表裏構造の完全復元 -->
+    <main id="industry-flashcard-screen" class="screen">
+        <div class="container py-8 px-4 max-w-xl mx-auto text-center">
+            <button id="backButtonFromIndFlashcard" class="mb-12 font-bold text-gray-400">← 戻る</button>
+            <div class="perspective-1000 w-full h-80 mb-12" onclick="flipIndCard()">
+                <div id="ind-flashcard-inner" class="card-inner relative w-full h-full transition-transform duration-500">
+                    <div class="card-front absolute inset-0 bg-white border-2 border-emerald-100 rounded-3xl flex items-center justify-center p-10 shadow-xl">
+                        <p id="ind-card-front" class="text-4xl font-bold text-gray-800 tracking-tight"></p>
+                    </div>
+                    <div class="card-back absolute inset-0 bg-emerald-50 border-2 border-emerald-300 rounded-3xl flex flex-col items-center justify-center p-10 shadow-xl">
+                        <p id="ind-card-back-meaning" class="text-3xl font-bold text-emerald-700 mb-6"></p>
+                        <div class="w-12 h-1 bg-emerald-200 mb-6"></div>
+                        <p id="ind-card-back-sentence" class="text-lg italic text-gray-600 leading-relaxed"></p>
+                    </div>
+                </div>
+            </div>
+            <div class="flex items-center justify-between gap-6">
+                <button onclick="prevIndCard()" class="flex-1 py-4 bg-gray-100 rounded-2xl font-bold text-gray-500 hover:bg-gray-200 transition">前へ</button>
+                <div class="px-6 py-2 bg-emerald-100 text-emerald-700 rounded-full font-bold text-sm" id="ind-card-progress">1 / 10</div>
+                <button onclick="nextIndCard()" class="flex-1 py-4 bg-emerald-500 text-white rounded-2xl font-bold shadow-lg hover:bg-emerald-600 transition">次へ</button>
+            </div>
+            <p class="mt-8 text-xs text-gray-400 uppercase tracking-widest font-bold">カードをタップして裏返す</p>
+        </div>
+    </main>
+
+    <!-- キーフレーズ：詳細シナリオ復元 -->
+    <main id="industry-phrase-screen" class="screen">
+        <div class="container py-8 px-4 max-w-2xl mx-auto">
+            <button id="backButtonFromIndPhrase" class="mb-12 font-bold text-gray-400">← 戻る</button>
+            <div class="bg-white p-10 rounded-3xl shadow-xl border border-gray-100 mb-8 relative">
+                <div class="absolute -top-4 left-10 px-4 py-1 bg-blue-500 text-white text-xs font-bold rounded-full">Scenario</div>
+                <p id="ind-phrase-scenario" class="text-lg text-gray-500 mb-8 pt-4 italic"></p>
+                <div class="w-full h-px bg-gray-100 mb-8"></div>
+                <p id="ind-phrase-text" class="text-3xl font-bold text-emerald-600 leading-tight mb-8"></p>
+                <div id="ind-phrase-trans-container" class="hidden bg-emerald-50 p-6 rounded-2xl border border-emerald-100">
+                    <p id="ind-phrase-trans" class="text-xl font-bold text-emerald-800"></p>
+                </div>
+            </div>
+            <div class="flex gap-4">
+                <button onclick="toggleIndPhraseTrans()" class="flex-1 py-4 bg-white border-2 border-emerald-500 text-emerald-500 font-bold rounded-2xl hover:bg-emerald-50 transition">訳を表示/隠す</button>
+                <button onclick="nextIndPhrase()" class="flex-1 py-4 bg-emerald-500 text-white font-bold rounded-2xl shadow-lg hover:bg-emerald-600 transition">次のフレーズ 🔄</button>
+            </div>
+        </div>
+    </main>
+
+    <!-- ミニ記事：翻訳エリアの復元 -->
+    <main id="industry-article-screen" class="screen">
+        <div class="container py-8 px-4 max-w-3xl mx-auto">
+            <button id="backButtonFromIndArticle" class="mb-12 font-bold text-gray-400">← 戻る</button>
+            <div class="bg-white p-12 rounded-3xl shadow-sm border border-gray-100 mb-8">
+                <h2 id="ind-article-title" class="text-3xl font-bold mb-8 text-gray-800"></h2>
+                <div id="ind-article-content" class="text-lg text-gray-600 leading-loose space-y-4">
+                    <!-- 文章が挿入される -->
+                </div>
+                <div id="ind-article-trans-container" class="hidden mt-12 pt-12 border-t border-dashed">
+                    <p id="ind-article-trans" class="text-base text-gray-400 leading-relaxed"></p>
+                </div>
+            </div>
+            <div class="flex gap-4">
+                <button onclick="toggleIndArticleTrans()" class="px-8 py-4 bg-white border-2 border-gray-200 text-gray-500 font-bold rounded-2xl">全文訳を表示</button>
+                <button onclick="nextIndArticle()" class="flex-grow py-4 bg-emerald-500 text-white font-bold rounded-2xl shadow-lg hover:bg-emerald-600 transition">次の記事へ &rarr;</button>
+            </div>
+        </div>
+    </main>
+
+    <!-- 11. ビデオチャット -->
+    <main id="video-chat-screen" class="screen">
+        <div class="container py-8 px-4 max-w-4xl mx-auto">
+            <button id="backButtonFromVideo" class="mb-8 font-bold text-gray-400">← 戻る</button>
+            <h1 class="text-3xl font-bold mb-8">ビデオチャット 📹</h1>
+            <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+                <div class="lg:col-span-3">
+                    <div class="relative aspect-video bg-gray-900 rounded-3xl overflow-hidden shadow-2xl">
+                        <video id="remote-video" autoplay playsinline class="w-full h-full object-cover"></video>
+                        <div class="absolute bottom-6 right-6 w-1/3 aspect-video border-4 border-white rounded-2xl shadow-2xl overflow-hidden bg-gray-800">
+                            <video id="local-video" autoplay muted playsinline class="w-full h-full object-cover"></video>
+                        </div>
+                        <div id="video-overlay-info" class="absolute top-6 left-6 flex items-center gap-2">
+                            <span class="w-3 h-3 bg-red-500 rounded-full animate-pulse"></span>
+                            <span class="text-white text-xs font-bold uppercase tracking-widest">Live Connect</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="space-y-6">
+                    <div class="bg-white p-6 rounded-2xl border">
+                        <h4 class="text-xs font-bold text-gray-400 uppercase mb-4 tracking-widest">Conversation Topic</h4>
+                        <p id="video-topic" class="text-sm font-bold text-gray-700 leading-relaxed italic">"What is the most interesting place you have ever visited?"</p>
+                    </div>
+                    <div class="flex flex-col gap-3">
+                        <button id="start-call-btn" class="w-full py-4 bg-emerald-500 text-white font-bold rounded-2xl shadow-lg hover:bg-emerald-600 transition">Start Connection</button>
+                        <button id="end-call-btn" disabled class="w-full py-4 bg-red-100 text-red-500 font-bold rounded-2xl hover:bg-red-200 transition">End Call</button>
+                    </div>
+                    <div id="video-status" class="text-[10px] text-center font-bold text-gray-300 uppercase">Ready</div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script type="module" src="script.js"></script>
+</body>
+</html>
